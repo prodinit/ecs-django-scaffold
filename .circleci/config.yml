@@ -1,0 +1,14 @@
+version: 2
+
+jobs:
+  create-project:
+    docker:
+      - image: circleci/python:3.9
+    steps:
+      - checkout
+      - run:
+          command: |
+            pip install cookiecutter
+            cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
+            cd dummy
+            rm -rf .github
