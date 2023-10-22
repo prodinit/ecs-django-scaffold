@@ -1,0 +1,7 @@
+
+*.hcl
+*.tfvars
+.terraform
+./deployment/terraform/terraform.tfvars
+
+.vscode
