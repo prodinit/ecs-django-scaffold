@@ -12,3 +12,8 @@ jobs:
             cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
             cd dummy
             rm -rf .github
+
+workflows:
+  setup:
+    jobs:
+      - create-project
