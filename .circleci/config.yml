@@ -11,6 +11,10 @@ jobs:
             cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
             cd dummy
             rm -rf .github
+            rm -rf deployment
+            pip install poetry
+            poetry install
+            poetry run pytest --cov -v --tb=native
 
 workflows:
   version: 2
