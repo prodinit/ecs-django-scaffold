@@ -9,10 +9,15 @@ jobs:
           command: |
             pip install cookiecutter
             cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
+            
+    remove-stale-folders:
+      steps:
+        = run:
+          command: |
             cd dummy
             rm -rf .github
             rm -rf deployment
-            pip install poetry
+            pip install poetry==1.2.0
             poetry install
             poetry run pytest --cov -v --tb=native
 
@@ -21,3 +26,4 @@ workflows:
   setup:
     jobs:
       - create-project
+      - remove-stale-folders
