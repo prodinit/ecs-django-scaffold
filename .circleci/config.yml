@@ -6,19 +6,26 @@ jobs:
       - image: circleci/python:3.9
     steps:
       - run:
+          name: Setup project
           command: |
             pip install cookiecutter
             cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
             
-    remove-stale-folders:
-      steps:
-        = run:
+      - run:
+          name:  Remove stale folders
           command: |
             cd dummy
-            rm -rf .github
-            rm -rf deployment
+            rm -rf .github deployment
+      
+      - run:
+          name: Install poetry and requirements
+          command: |
             pip install poetry==1.2.0
             poetry install
+
+      - run:
+          name: Run tests
+          command: |
             poetry run pytest --cov -v --tb=native
 
 workflows:
@@ -26,4 +33,3 @@ workflows:
   setup:
     jobs:
       - create-project
-      - remove-stale-folders
