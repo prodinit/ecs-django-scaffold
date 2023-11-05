@@ -42,4 +42,4 @@
 Learn more about VPC and other associated services: https://blogs.prodinit.com/aws/all-about-vpc-and-other-related-services
 
 ## CircleCI Flow
-![circle ci](https://raw.githubusercontent.com/prodinit/ecs-django-scaffold/master/.github/circleci.png)
+![circle ci](https://raw.githubusercontent.com/prodinit/ecs-django-scaffold/master/circleci.png)
