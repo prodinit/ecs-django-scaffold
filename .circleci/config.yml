@@ -1,35 +1,131 @@
-version: 2
+version: 2.1
 
 jobs:
-  create-project:
+  run-tests:
     docker:
-      - image: circleci/python:3.9
+      - image: cimg/python:3.9.7
     steps:
+      - checkout
       - run:
-          name: Setup project
+          name: Install dependencies
           command: |
-            pip install cookiecutter
-            cookiecutter gh:prodinit/django-boilerplate --no-input project_name=dummy
-            
-      - run:
-          name:  Remove stale folders
-          command: |
-            cd dummy
-            rm -rf .github deployment
-      
-      - run:
-          name: Install poetry and requirements
-          command: |
-            pip install poetry==1.5.1
+            python -m pip install --upgrade pip  
+            pip install poetry==1.2.2
+            pip install awscli --quiet
+            poetry config virtualenvs.create false
             poetry install
-
       - run:
-          name: Run tests
+          name: Run Tests
           command: |
-            poetry run pytest --cov -v --tb=native
+            echo 'export AWS_DEFAULT_REGION="${AWS_REGION}"' >> $BASH_ENV
+            source $BASH_ENV
+            bash run_test.sh
+
+  validate-terraform:
+    working_directory: /tmp/project
+    docker:
+      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+    steps:
+      - checkout
+      - run:
+          name: terraform init & validate
+          command: |
+            cd deployment/terraform
+            terraform init -backend=false
+            terraform validate
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  apply-terraform:
+    working_directory: /tmp/project
+    docker:
+      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+    steps:
+      - checkout
+      - run:
+          name: setup TF VARS
+          command: |
+            echo 'export TF_VAR_PRIVATE_SUBNET_CIDRS="${PRIVATE_SUBNET_CIDRS}"' >> $BASH_ENV
+            echo 'export PROJECT_ROOT_PATH=$(pwd)' >> $BASH_ENV
+            echo 'export TF_VAR_BUILD_ID="${CIRCLE_BUILD_NUM}"' >> $BASH_ENV
+            echo 'export TF_VAR_AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"' >> $BASH_ENV
+            echo 'export TF_VAR_AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"' >> $BASH_ENV
+            echo 'export TF_VAR_AWS_REGION="${AWS_REGION}"' >> $BASH_ENV
+            echo 'export TF_VAR_AWS_S3_BUCKET="${AWS_S3_BUCKET}"' >> $BASH_ENV
+            echo 'export TF_VAR_PRODUCT_ENVIRONMENT="${PRODUCT_ENVIRONMENT}"' >> $BASH_ENV
+            echo 'export TF_VAR_PROJECT_NAME="${PROJECT_NAME}"' >> $BASH_ENV
+            echo 'export TF_VAR_DATABASE_PASSWORD="${DATABASE_PASSWORD}"' >> $BASH_ENV
+            echo 'export TF_VAR_DEBUG="${DEBUG}"' >> $BASH_ENV
+            echo 'export TF_VAR_DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE}"' >> $BASH_ENV
+            echo 'export TF_VAR_DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY}"' >> $BASH_ENV
+            echo 'export TF_VAR_DEFAULT_FROM_EMAIL="${DEFAULT_FROM_EMAIL}"' >> $BASH_ENV
+            echo 'export TF_VAR_EMAIL_HOST_PASSWORD="${EMAIL_HOST_PASSWORD}"' >> $BASH_ENV
+            echo 'export TF_VAR_GOOGLE_OAUTH2_CLIENT_ID="${GOOGLE_OAUTH2_CLIENT_ID}"' >> $BASH_ENV
+            echo 'export TF_VAR_GOOGLE_OAUTH2_CLIENT_SECRET="${GOOGLE_OAUTH2_CLIENT_SECRET}"' >> $BASH_ENV
+            echo 'export TF_VAR_GOOGLE_OAUTH2_PROJECT_ID="${GOOGLE_OAUTH2_PROJECT_ID}"' >> $BASH_ENV
+      - run:
+          name: terraform init & apply
+          command: |
+            cd deployment/terraform
+            source $BASH_ENV
+            terraform init -reconfigure -force-copy -backend-config="bucket=$AWS_S3_BUCKET" -backend-config="key=tf/$PRODUCT_ENVIRONMENT.tfstate" -backend-config="region=$AWS_REGION"
+            terraform apply -auto-approve
+      - run:
+          name: Export TF env vars for build
+          command: |
+            cd deployment/terraform
+            ECR=$(echo $(terraform output -raw ecr_url))
+            echo "export ecr_url=$ECR" >> $BASH_ENV
+
+            ECS_CLUSTER=$(echo $(terraform output -raw ecs_cluster))
+            echo "export ecs_cluster=$ECS_CLUSTER" >> $BASH_ENV
+
+            ECS_SERVICE=$(echo $(terraform output -raw ecs_service))
+            echo "export ecs_service=$ECS_SERVICE" >> $BASH_ENV
+
+            DATABASE=$(echo $(terraform output -raw DATABASE_URL))
+            echo "export DATABASE_URL=$DATABASE" >> $BASH_ENV
+
+            cp $BASH_ENV /tmp/project/bash.env
+      - persist_to_workspace:
+          root: .
+          paths:
+            - bash.env
+
+  build-and-deploy:
+    docker:
+      - image: cimg/python:3.9.7
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: false
+      - attach_workspace:
+          at: .
+      - run:
+          name: Login Build Push to ECR and Update ECS
+          command: |
+            source bash.env
+            python -m pip install --upgrade pip
+            pip install awscli
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ecr_url
+            echo "Docker build and push"
+            DOCKER_COMPOSE_DIR="$PROJECT_ROOT_PATH/docker-compose.yml"
+            docker-compose -f $DOCKER_COMPOSE_DIR build
+            docker-compose -f $DOCKER_COMPOSE_DIR push
+            aws ecs update-service --region $AWS_REGION --cluster $ecs_cluster --service $ecs_service --force-new-deployment
 
 workflows:
-  version: 2
-  setup:
+  main:
     jobs:
-      - create-project
+      - run-tests
+      - validate-terraform
+      - apply-terraform:
+          requires:
+            - run-tests
+            - validate-terraform
+      - build-and-deploy:
+          requires:
+            - apply-terraform

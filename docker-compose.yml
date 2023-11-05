@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./deployment/docker/Dockerfile
+    image: $ecr_url:web-$CIRCLE_BUILD_NUM
+    environment:
+      AWS_REGION: $AWS_REGION
+    privileged: false
+    command: >
+      bash -c "gunicorn wsgi:application -b 0.0.0.0:8000 -w 3 --timeout 100000"
+    ports:
+      - "8000:8000"
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: $AWS_REGION
+        awslogs-group: logs
+        awslogs-stream-prefix: web
+
+  nginx:
+    image: $ecr_url:nginx-$CIRCLE_BUILD_NUM
+    environment:
+      AWS_REGION: $AWS_REGION
+    build:
+      context: .
+      dockerfile: ./deployment/nginx/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: $AWS_REGION
+        awslogs-group: logs
+        awslogs-stream-prefix: nginx

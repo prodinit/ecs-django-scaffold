@@ -1,4 +1,3 @@
-
 resource "aws_ecr_repository" "ecr" {
   name                 = "${var.PROJECT_NAME}-ecr-${var.PRODUCT_ENVIRONMENT}"
   image_tag_mutability = "MUTABLE"
